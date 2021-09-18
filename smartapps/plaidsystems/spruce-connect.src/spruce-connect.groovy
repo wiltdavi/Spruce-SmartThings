@@ -102,7 +102,7 @@ def pageDevices(){
         dynamicPage(name: "pageDevices", uninstall: true, install:true) {
         	if(atomicState.zoneUpdate == true) section("Device changes found, device tiles will be updated! \n\nErrors will occur if devices are assigned to Automations and SmartApps, please remove before updating.\n"){}
          	section("Select settings for connected devices\nConnected controller: ${settings.controller}\nConnected zones: ${zoneList()}") {
-                input(name: "notifications", title:"Select Notifications used in SmartThings:", type: "enum", required:false, multiple:true, description: "Tap to choose", metadata:[values: ['Schedule','Zone','Valve Fault']])
+                input(name: "notifications", title:"Select Notifications used in SmartThings:", type: "enum", required:false, multiple:true, description: "Tap to choose", metadata:[values: ['Schedule','Sensor Disconnected','Zone','Valve Fault']])
                 input(name: "pause", title:"Turn on to create Spruce Pause control that is accesible from automation routines to pause and resume water", type: 'bool')
             }
             section("SmartThings Spruce Sensors that will report to Spruce Cloud:") {
@@ -198,6 +198,7 @@ def initialize() {
         addDevices()
     	createChildDevices()        
 	}    
+	runEvery5Minutes(checkSensors)
 }
 
 //get zone device list
@@ -218,10 +219,13 @@ def getSensors(){
     log.debug "getSensors: " + settings.sensors    
     
     def tempSensors = [:]
+    def tempSensorsReport = [:]
     settings.sensors.each{
-    	tempSensors[it]= (it.device.zigbeeId)
+        tempSensors[it] = (it.device.zigbeeId)
+        tempSensorsReport[it] = null
         }
     atomicState.sensors = tempSensors
+    atomicState.sensorsReport = tempSensorsReport
     
     subscribe(settings.sensors, "humidity", sensorHandler)
     subscribe(settings.sensors, "temperature", sensorHandler)
@@ -521,6 +525,25 @@ def getScheduleName(scheduleid){
 	return scheduleName
 }
 
+//check sensors
+def checkSensors(){
+	def tempSensorsReportMap = atomicState.sensorsReport
+    
+	tempSensorsReportMap.each{
+		if (it.value == null){
+			}
+		else if (now() - it.value > 10800000){ // If the sensor last reported in 10800000 msec (3 hrs) ago it is considered disconnected.
+			log.debug "Sensor ${it.key} last reported ${(now() - it.value)/60000} mins ago.  Transitioning to Disconnected."
+			note('Sensor Disconnected', "Sensor ${it.key} is Disconnected.")
+			tempSensorsReportMap["${it.key}"] = null
+			}
+		else{
+			log.debug "Sensor ${it.key} last reported ${(now() - it.value)/60000} mins ago."
+			}
+		}
+		atomicState.sensorsReport = tempSensorsReportMap
+}
+
 //sensor evts
 def sensorHandler(evt) {
     log.debug "sensorHandler: ${evt.device}, ${evt.name}, ${evt.value}"
@@ -528,6 +551,13 @@ def sensorHandler(evt) {
     def device = atomicState.sensors["${evt.device}"]
     def value = evt.value
     def uri = "https://api.spruceirrigation.com/v2/"
+    def tempSensorsReportMap = atomicState.sensorsReport
+
+    if (tempSensorsReportMap["${evt.device}"] == null){
+        note('Sensor Disconnected', "Sensor ${evt.device} is Connected.")
+        }
+    tempSensorsReportMap["${evt.device}"] = now()
+    atomicState.sensorsReport = tempSensorsReportMap
     
     if (evt.name == "humidity") uri += "moisture"
     
