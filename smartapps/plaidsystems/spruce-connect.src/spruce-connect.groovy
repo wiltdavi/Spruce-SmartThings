@@ -507,8 +507,8 @@ def sensorHandler(evt) {
 
     def device = atomicState.sensors["${evt.device}"]
     def uri = "https://api.spruceirrigation.com/v2/"
+    def value = evt.value	
     def tempSensorsReportMap = atomicState.sensorsReport
-    def value = evt.value
 
     if (tempSensorsReportMap["${evt.device}"] == null){
         note('Sensor Disconnected', "Sensor ${evt.device} is Connected.")
